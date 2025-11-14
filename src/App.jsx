@@ -38,10 +38,30 @@ import {
   Image as ImageIcon,
   ChevronDown,
   ChevronUp,
-  Smile, // Added
-  Meh,   // Added
-  Frown  // Added
+  Smile,
+  Meh,
+  Frown,
+  Users // For Persona Architect
 } from 'lucide-react';
+
+/* --- New Dark/Purple AI Theme Color Palette --- */
+// Inspired by the provided image.
+const THEME_COLORS = {
+  background: '#1E1A3D', // Deep dark blue/purple
+  cardBackground: '#2B2456', // Slightly lighter purple for cards
+  textPrimary: '#FFFFFF',      // White
+  textSecondary: '#D9D4E7', // Light lavender/gray
+  accentPrimary: '#9E78F0', // Bright violet
+  accentSecondary: '#7A5CFA', // Bright blue/purple
+  accentTertiary: '#5C4A9C', // Muted purple
+  border: '#4A3F7A',      // Mid-dark purple border
+  error: '#FF4136',      // Bright Red for errors
+  success: '#2ECC71',    // Bright Green for success
+};
+
+// Colors for Charts
+const CHART_COLORS = [THEME_COLORS.accentPrimary, THEME_COLORS.accentSecondary, THEME_COLORS.accentTertiary, '#8884d8'];
+
 
 // --- Helper Functions ---
 
@@ -58,7 +78,6 @@ const fetchWithBackoff = async (url, options, retries = 3, delay = 1000) => {
         return fetchWithBackoff(url, options, retries - 1, delay * 2);
       }
       
-      // MODIFIED: Try to get detailed error message from response body
       let errorBody = null;
       let detailedMessage = response.statusText;
       try {
@@ -81,27 +100,112 @@ const fetchWithBackoff = async (url, options, retries = 3, delay = 1000) => {
   }
 };
 
+// 2-Step Fetch Function: Grounded Text -> JSON Parsing
+const fetchGroundedJson = async (apiKey, textPrompt, jsonSchema, setLoadingMessage) => {
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
-// --- Reusable UI Components ---
+  // Step 1: Get grounded text data using Google Search
+  setLoadingMessage("Step 1/2: Searching for grounded insights...");
+  const searchPayload = {
+    contents: [{ parts: [{ text: textPrompt }] }],
+    tools: [{ "google_search": {} }],
+  };
+
+  const searchData = await fetchWithBackoff(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(searchPayload),
+  });
+
+  const groundedText = searchData.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!groundedText) {
+    throw new Error('Step 1 Failed: No content returned from analysis.');
+  }
+
+  // Step 2: Parse the grounded text into the required JSON schema
+  setLoadingMessage("Step 2/2: Analyzing and structuring data...");
+  
+  const parseJsonPrompt = `
+    Parse the following market analysis text and convert it into a valid JSON object matching the provided schema.
+
+    TEXT TO PARSE:
+    ---
+    ${groundedText}
+    ---
+
+    Respond ONLY with the valid JSON object.
+  `;
+
+  const jsonPayload = {
+    contents: [{ parts: [{ text: parseJsonPrompt }] }],
+    generationConfig: {
+      responseMimeType: "application/json",
+      responseSchema: jsonSchema
+    }
+  };
+
+  const jsonData = await fetchWithBackoff(apiUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(jsonPayload),
+  });
+
+  const jsonText = jsonData.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (jsonText) {
+    return JSON.parse(jsonText);
+  } else {
+    throw new Error('Step 2 Failed: No JSON content returned from parsing.');
+  }
+};
+
+
+// --- Reusable UI Components (New Dark Theme) ---
 
 const StyledInput = React.forwardRef(({ className, ...props }, ref) => (
   <input
     ref={ref}
-    className={`w-full px-4 py-2 border border-gray-300 rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent ${className}`}
+    className={`w-full px-4 py-3 border rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-transparent ${className}`}
+    style={{
+      borderColor: THEME_COLORS.border,
+      backgroundColor: THEME_COLORS.background,
+      color: THEME_COLORS.textPrimary,
+      '--tw-ring-color': THEME_COLORS.accentPrimary
+    }}
     {...props}
   />
 ));
 
-const StyledButton = ({ children, className, variant = 'primary', ...props }) => {
-  const baseStyle = 'px-6 py-2 rounded-lg font-semibold shadow-md transition-all duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2';
+const StyledButton = ({ children, className, variant = 'primary', isLoading = false, ...props }) => {
+  const baseStyle = 'px-6 py-3 rounded-lg font-semibold shadow-md transition-all duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 flex items-center justify-center';
   const variants = {
-    primary: 'bg-indigo-600 text-white hover:bg-indigo-700 focus:ring-indigo-500',
-    secondary: 'bg-gray-200 text-gray-800 hover:bg-gray-300 focus:ring-gray-400',
-    danger: 'bg-red-600 text-white hover:bg-red-700 focus:ring-red-500',
+    primary: {
+      backgroundColor: THEME_COLORS.accentPrimary,
+      color: THEME_COLORS.textPrimary,
+      '--tw-ring-color': THEME_COLORS.accentPrimary,
+      '--tw-ring-offset-color': THEME_COLORS.cardBackground
+    },
+    secondary: {
+      backgroundColor: THEME_COLORS.accentSecondary,
+      color: THEME_COLORS.textPrimary,
+      '--tw-ring-color': THEME_COLORS.accentSecondary,
+      '--tw-ring-offset-color': THEME_COLORS.cardBackground
+    },
   };
+  
+  const style = variants[variant] || variants['primary'];
+
   return (
-    <button className={`${baseStyle} ${variants[variant]} ${className}`} {...props}>
-      {children}
+    <button 
+      className={`${baseStyle} ${className}`} 
+      style={{
+        ...style,
+        opacity: props.disabled || isLoading ? 0.7 : 1,
+        cursor: props.disabled || isLoading ? 'not-allowed' : 'pointer'
+      }}
+      disabled={props.disabled || isLoading}
+      {...props}
+    >
+      {isLoading ? <Loader2 size={20} className="animate-spin" /> : children}
     </button>
   );
 };
@@ -109,11 +213,18 @@ const StyledButton = ({ children, className, variant = 'primary', ...props }) =>
 const Modal = ({ children, isOpen, onClose }) => {
   if (!isOpen) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-lg w-full m-4 relative">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-75 backdrop-blur-sm">
+      <div 
+        className="rounded-2xl shadow-2xl p-8 max-w-lg w-full m-4 relative border"
+        style={{
+          backgroundColor: THEME_COLORS.cardBackground,
+          borderColor: THEME_COLORS.border
+        }}
+      >
         <button
           onClick={onClose}
-          className="absolute top-4 right-4 text-gray-400 hover:text-gray-600"
+          className="absolute top-4 right-4"
+          style={{ color: THEME_COLORS.textSecondary }}
         >
           <X size={24} />
         </button>
@@ -126,37 +237,74 @@ const Modal = ({ children, isOpen, onClose }) => {
 const ErrorToast = ({ message, onClose }) => {
   if (!message) return null;
   return (
-    <div className="fixed bottom-4 right-4 z-50 bg-red-600 text-white p-4 rounded-lg shadow-lg flex items-center">
+    <div className="fixed bottom-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center"
+      style={{ backgroundColor: THEME_COLORS.error, color: 'white' }}
+    >
       <AlertTriangle size={24} className="mr-3" />
       <span>{message}</span>
-      <button onClick={onClose} className="ml-4 text-white hover:text-red-100">
+      <button onClick={onClose} className="ml-4 text-white">
         <X size={20} />
       </button>
     </div>
   );
 };
 
-const LoadingSpinner = ({ size = 24 }) => (
-  <Loader2 size={size} className="animate-spin text-indigo-600" />
+const LoadingSpinner = ({ size = 24, className = "" }) => (
+  <Loader2 
+    size={size} 
+    className={`animate-spin ${className}`}
+    style={{ color: THEME_COLORS.accentPrimary }}
+  />
 );
 
-const ChartContainer = ({ title, children }) => (
-  <div className="bg-white rounded-xl shadow-lg p-6 border border-gray-100">
-    <h3 className="text-xl font-semibold text-gray-800 mb-4">{title}</h3>
-    <div style={{ width: '100%', height: 300 }}>
-      <ResponsiveContainer>{children}</ResponsiveContainer>
+const ChartContainer = ({ title, children, height = 300 }) => ( // Added height prop
+  <div 
+    className="rounded-xl shadow-lg p-6 border"
+    style={{ 
+      backgroundColor: THEME_COLORS.cardBackground,
+      borderColor: THEME_COLORS.border 
+    }}
+  >
+    <h3 
+      className="text-xl font-semibold mb-4"
+      style={{ color: THEME_COLORS.textPrimary }}
+    >
+      {title}
+    </h3>
+    <div style={{ width: '100%', height: height }}> {/* Use height prop */}
+      {/* Recharts components need explicit text color props for dark mode */}
+      <ResponsiveContainer>
+        {React.cloneElement(children, {
+          ...children.props,
+          // Pass down text color for axes, labels, etc.
+          // This will be picked up by XAxis, YAxis, Legend, Tooltip
+          stroke: THEME_COLORS.textSecondary,
+          fill: THEME_COLORS.textSecondary,
+          tick: { fill: THEME_COLORS.textSecondary },
+          label: { fill: THEME_COLORS.textSecondary }
+        })}
+      </ResponsiveContainer>
     </div>
   </div>
 );
 
-const StatCard = ({ title, value, icon }) => (
-  <div className="bg-white rounded-xl shadow-md p-6 flex items-center space-x-4 border border-gray-100">
-    <div className="p-3 bg-indigo-100 rounded-full">
-      {React.cloneElement(icon, { size: 24, className: "text-indigo-600" })}
+const StatCard = ({ title, value, icon, bgColor }) => (
+  <div 
+    className="rounded-xl shadow-md p-6 flex items-center space-x-4 border"
+    style={{ 
+      backgroundColor: THEME_COLORS.cardBackground, 
+      borderColor: THEME_COLORS.border 
+    }}
+  >
+    <div 
+      className="p-3 rounded-full"
+      style={{ backgroundColor: `${THEME_COLORS.accentPrimary}30` }} // Transparent accent
+    >
+      {React.cloneElement(icon, { size: 24, style: { color: THEME_COLORS.accentPrimary } })}
     </div>
     <div>
-      <p className="text-sm font-medium text-gray-500">{title}</p>
-      <p className="text-2xl font-bold text-gray-900">{value}</p>
+      <p className="text-sm font-medium" style={{ color: THEME_COLORS.textSecondary }}>{title}</p>
+      <p className="text-2xl font-bold" style={{ color: THEME_COLORS.textPrimary }}>{value}</p>
     </div>
   </div>
 );
@@ -175,21 +323,30 @@ const WelcomeTab = ({ onApiKeySave }) => {
     <div className="space-y-12">
       {/* Header */}
       <div className="text-center">
-        <h1 className="text-5xl font-extrabold text-gray-900">
-          Welcome to <span className="text-indigo-600">Naya Daur</span>
+        <h1 
+          className="text-5xl font-extrabold"
+          style={{ color: THEME_COLORS.textPrimary }}
+        >
+          Welcome to <span style={{ color: THEME_COLORS.accentPrimary }}>Naya Daur</span>
         </h1>
-        <p className="mt-4 text-xl text-gray-600">
+        <p className="mt-4 text-xl" style={{ color: THEME_COLORS.textSecondary }}>
           Ushering in a New Era of AI-Powered Marketing
         </p>
       </div>
 
       {/* API Key Input */}
-      <div className="max-w-xl mx-auto bg-white p-8 rounded-xl shadow-lg border border-gray-100">
-        <h2 className="text-2xl font-semibold text-center text-gray-800 mb-6">
+      <div 
+        className="max-w-xl mx-auto p-8 rounded-xl shadow-lg border"
+        style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+      >
+        <h2 
+          className="text-2xl font-semibold text-center mb-6"
+          style={{ color: THEME_COLORS.textPrimary }}
+        >
           Activate Your Dashboard
         </h2>
         <div className="flex items-center space-x-3">
-          <KeyRound size={24} className="text-gray-400" />
+          <KeyRound size={24} style={{ color: THEME_COLORS.textSecondary }} />
           <StyledInput
             type="password"
             placeholder="Enter your Gemini API Key"
@@ -197,18 +354,24 @@ const WelcomeTab = ({ onApiKeySave }) => {
             onChange={(e) => setKey(e.target.value)}
           />
         </div>
-        <StyledButton onClick={handleSave} className="w-full mt-4">
+        <StyledButton onClick={handleSave} className="w-full mt-4" isLoading={false}>
           <Check size={20} className="inline-block mr-2" />
           Save and Activate
         </StyledButton>
       </div>
 
       {/* Vision */}
-      <div className="bg-white p-8 rounded-xl shadow-md border border-gray-100">
-        <h2 className="text-3xl font-bold text-gray-900 mb-4">
+      <div 
+        className="p-8 rounded-xl shadow-md border"
+        style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+      >
+        <h2 
+          className="text-3xl font-bold mb-4"
+          style={{ color: THEME_COLORS.textPrimary }}
+        >
           Our Vision: Ushering in a New Era of Marketing
         </h2>
-        <p className="text-gray-700 leading-relaxed">
+        <p style={{ color: THEME_COLORS.textSecondary }} className="leading-relaxed">
           Naya Daur (meaning 'New Era') was built on the belief that
           Generative AI can democratize strategic marketing. Our vision is to
           empower businesses of all sizes to understand complex markets,
@@ -219,7 +382,10 @@ const WelcomeTab = ({ onApiKeySave }) => {
 
       {/* Stats */}
       <div>
-        <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">
+        <h2 
+          className="text-3xl font-bold mb-6 text-center"
+          style={{ color: THEME_COLORS.textPrimary }}
+        >
           Our Success
         </h2>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -231,7 +397,10 @@ const WelcomeTab = ({ onApiKeySave }) => {
 
       {/* Customers */}
       <div>
-        <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">
+        <h2 
+          className="text-3xl font-bold mb-6 text-center"
+          style={{ color: THEME_COLORS.textPrimary }}
+        >
           Trusted By
         </h2>
         <div className="flex flex-wrap justify-center items-center gap-x-12 gap-y-6">
@@ -241,7 +410,7 @@ const WelcomeTab = ({ onApiKeySave }) => {
             'GlobalTech Solutions',
             'Aura Consumer Goods',
           ].map((name) => (
-            <span key={name} className="text-xl font-semibold text-gray-500">
+            <span key={name} className="text-xl font-semibold" style={{ color: THEME_COLORS.textSecondary }}>
               {name}
             </span>
           ))}
@@ -251,9 +420,186 @@ const WelcomeTab = ({ onApiKeySave }) => {
   );
 };
 
-// --- Tab 2: Market Position Analyzer ---
+// --- Tab 2: Persona Architect (NEW) ---
 
-// NEW: Define the JSON schema we expect from the AI
+// Define the JSON schema for Persona Architect
+const personaArchitectSchema = {
+  type: "OBJECT",
+  properties: {
+    personas: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          name: { type: "STRING" },
+          age: { type: "NUMBER" },
+          role: { type: "STRING" },
+          demographic: { type: "STRING" },
+          psychographics: {
+            type: "ARRAY",
+            items: { type: "STRING" }
+          },
+          painPoints: {
+            type: "ARRAY",
+            items: { type: "STRING" }
+          },
+          motivators: {
+            type: "ARRAY",
+            items: { type: "STRING" }
+          },
+          preferredChannels: {
+            type: "ARRAY",
+            items: { type: "STRING" }
+          },
+          keyMessage: { type: "STRING" }
+        },
+        required: ["name", "age", "role", "demographic", "psychographics", "painPoints", "motivators", "preferredChannels", "keyMessage"]
+      }
+    }
+  },
+  required: ["personas"]
+};
+
+// New Persona Card Component
+const PersonaCard = ({ persona, index }) => (
+  <div 
+    className="rounded-xl shadow-lg p-6 border flex flex-col space-y-4"
+    style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+  >
+    <div className="text-center">
+      <div 
+        className="w-20 h-20 rounded-full mx-auto flex items-center justify-center text-3xl font-bold text-white"
+        style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }}
+      >
+        {persona.name.charAt(0)}
+      </div>
+      <h3 className="text-xl font-bold mt-4" style={{ color: THEME_COLORS.textPrimary }}>
+        {persona.name}, {persona.age}
+      </h3>
+      <p className="font-medium" style={{ color: THEME_COLORS.accentPrimary }}>
+        {persona.role}
+      </p>
+      <p className="text-sm mt-1" style={{ color: THEME_COLORS.textSecondary }}>
+        {persona.demographic}
+      </p>
+    </div>
+    
+    <PersonaDetailList title="Pain Points" items={persona.painPoints} />
+    <PersonaDetailList title="Motivators" items={persona.motivators} />
+    <PersonaDetailList title="Preferred Channels" items={persona.preferredChannels} />
+    
+    <div>
+      <h4 className="font-semibold mb-2" style={{ color: THEME_COLORS.textPrimary }}>Key Message</h4>
+      <p 
+        className="text-sm p-3 rounded-lg" 
+        style={{ 
+          backgroundColor: `${THEME_COLORS.accentSecondary}20`, 
+          color: THEME_COLORS.textSecondary 
+        }}
+      >
+        {persona.keyMessage}
+      </p>
+    </div>
+  </div>
+);
+
+const PersonaDetailList = ({ title, items }) => (
+  <div>
+    <h4 className="font-semibold mb-2" style={{ color: THEME_COLORS.textPrimary }}>{title}</h4>
+    <ul className="list-disc list-inside space-y-1">
+      {items.map((item, i) => (
+        <li key={i} className="text-sm" style={{ color: THEME_COLORS.textSecondary }}>{item}</li>
+      ))}
+    </ul>
+  </div>
+);
+
+
+const PersonaArchitectTab = ({ apiKey, onError }) => {
+  const [inputs, setInputs] = useState({ product: '', location: '' });
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
+  const [result, setResult] = useState(null);
+
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setInputs((prev) => ({ ...prev, [name]: value }));
+  };
+  
+  const handleGenerate = async () => {
+    if (!apiKey) {
+      onError('Please set your API Key in the Welcome tab first.');
+      return;
+    }
+    setIsLoading(true);
+    setResult(null);
+
+    const textPrompt = `
+      Act as a senior market researcher. Generate 3 distinct, deep-dive marketing personas for a company selling "${inputs.product}" in "${inputs.location}".
+      For each persona, find real, data-backed psychographics, pain points, motivations, media consumption habits, and a key persuasive message.
+      Ensure the personas are distinct and realistic for the specified location.
+    `;
+
+    try {
+      const data = await fetchGroundedJson(apiKey, textPrompt, personaArchitectSchema, setLoadingMessage);
+      setResult(data);
+    } catch (err) {
+      console.error(err);
+      onError(err.message || 'Failed to generate personas.');
+    } finally {
+      setIsLoading(false);
+      setLoadingMessage('');
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <h2 className="text-3xl font-bold" style={{ color: THEME_COLORS.textPrimary }}>Persona Architect</h2>
+      
+      {/* Input Form */}
+      <div 
+        className="grid grid-cols-1 md:grid-cols-3 gap-6 p-6 rounded-xl shadow-lg border"
+        style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+      >
+        <div className="md:col-span-1">
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Product / Service</label>
+          <StyledInput name="product" value={inputs.product} onChange={handleInputChange} placeholder="e.g., E-Scooters" />
+        </div>
+        <div className="md:col-span-1">
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Target Location</label>
+          <StyledInput name="location" value={inputs.location} onChange={handleInputChange} placeholder="e.g., Mumbai" />
+        </div>
+        <div className="md:col-span-1 flex items-end">
+          <StyledButton onClick={handleGenerate} disabled={isLoading} className="w-full" isLoading={isLoading}>
+            Generate Personas
+          </StyledButton>
+        </div>
+      </div>
+
+      {/* Output Section */}
+      {isLoading && (
+        <div className="flex justify-center items-center p-12">
+          <LoadingSpinner size={48} />
+          <p className="ml-4 text-xl" style={{ color: THEME_COLORS.textSecondary }}>
+            {loadingMessage || 'Generating...'}
+          </p>
+        </div>
+      )}
+
+      {result && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {result.personas.map((persona, index) => (
+            <PersonaCard key={index} persona={persona} index={index} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+
+// --- Tab 3: Market Position Analyzer ---
+
 const marketAnalyzerSchema = {
   type: "OBJECT",
   properties: {
@@ -351,8 +697,8 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
     competitors: '',
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState(''); // NEW
-  const [result, setResult] = useState(null); // Will hold the JSON object
+  const [loadingMessage, setLoadingMessage] = useState('');
+  const [result, setResult] = useState(null);
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -367,88 +713,29 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
     setIsLoading(true);
     setResult(null);
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    const searchTextPrompt = `
+      Analyze the market position for:
+      - Company: ${inputs.companyName} (${inputs.website})
+      - Location: ${inputs.location}
+      - Product: ${inputs.product}
+      - Competitors: ${inputs.competitors}
 
-    // ***************************************************************
-    // FIX: Perform a 2-step call to avoid the 400 error
-    // ***************************************************************
+      Provide a detailed, text-based report covering:
+      1.  Cultural Insights: Key cultural nuances in ${inputs.location} relevant to ${inputs.product}.
+      2.  Cultural Value Alignment: (e.g., Trait: Aspiration, Alignment: High, Implication: Strong appeal)
+      3.  Market Sentiment Analysis: Overall sentiment with estimated percentages (e.g., 70% positive).
+      4.  Recommendations: 3-5 actionable recommendations.
+      5.  Performance Benchmarks: Estimated Brand Awareness and Purchase Intent vs. industry average (e.g., Brand Awareness: 40% vs Industry 45%).
+      6.  Consumer Sentiment Analysis: Deeper dive into what consumers are saying.
+      7.  Key Cultural Themes: Top 3 cultural themes to leverage.
+      8.  Brand Performance Radar: 5 subjects (e.g., 'Innovation', 'Trust') and scores out of 100.
+      9.  Regional Performance: 4-6 key cities/regions in '${inputs.location}' and their sentiment.
+      10. Competitor Benchmarks: Compare '${inputs.companyName}' against '${inputs.competitors}' on 2-3 key metrics.
+    `;
 
     try {
-      // STEP 1: Get grounded text data using Google Search
-      setLoadingMessage('Analyzing market data...');
-      const searchTextPrompt = `
-        Analyze the market position for:
-        - Company: ${inputs.companyName} (${inputs.website})
-        - Location: ${inputs.location}
-        - Product: ${inputs.product}
-        - Competitors: ${inputs.competitors}
-
-        Provide a detailed, text-based report covering:
-        1.  Cultural Insights: Key cultural nuances in ${inputs.location} relevant to ${inputs.product}.
-        2.  Cultural Value Alignment: (e.g., Trait: Aspiration, Alignment: High, Implication: Strong appeal)
-        3.  Market Sentiment Analysis: Overall sentiment with estimated percentages (e.g., 70% positive).
-        4.  Recommendations: 3-5 actionable recommendations.
-        5.  Performance Benchmarks: Estimated Brand Awareness and Purchase Intent vs. industry average (e.g., Brand Awareness: 40% vs Industry 45%).
-        6.  Consumer Sentiment Analysis: Deeper dive into what consumers are saying.
-        7.  Key Cultural Themes: Top 3 cultural themes to leverage.
-        8.  Brand Performance Radar: 5 subjects (e.g., 'Innovation', 'Trust') and scores out of 100.
-        9.  Regional Performance: 4-6 key cities/regions in '${inputs.location}' and their sentiment.
-        10. Competitor Benchmarks: Compare '${inputs.companyName}' against '${inputs.competitors}' on 2-3 key metrics.
-      `;
-
-      const searchPayload = {
-        contents: [{ parts: [{ text: searchTextPrompt }] }],
-        tools: [{ "google_search": {} }],
-      };
-
-      const searchData = await fetchWithBackoff(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(searchPayload),
-      });
-
-      const groundedText = searchData.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!groundedText) {
-        throw new Error('Step 1 Failed: No content returned from market analysis.');
-      }
-
-      // STEP 2: Parse the grounded text into the required JSON schema
-      setLoadingMessage('Formatting results...');
-      
-      const parseJsonPrompt = `
-        Parse the following market analysis text and convert it into a valid JSON object matching the provided schema.
-
-        TEXT TO PARSE:
-        ---
-        ${groundedText}
-        ---
-
-        Fill all fields in the JSON schema. For 'competitorBenchmarks', use 'competitor1' and 'competitor2' as keys, deriving names from '${inputs.competitors}'.
-      `;
-
-      const jsonPayload = {
-        contents: [{ parts: [{ text: parseJsonPrompt }] }],
-        // NO 'tools' when 'generationConfig' is used for JSON
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: marketAnalyzerSchema
-        }
-      };
-
-      const jsonData = await fetchWithBackoff(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(jsonPayload),
-      });
-
-      const jsonText = jsonData.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (jsonText) {
-        const parsedJson = JSON.parse(jsonText);
-        setResult(parsedJson);
-      } else {
-        throw new Error('Step 2 Failed: No JSON content returned from parsing.');
-      }
-    
+      const data = await fetchGroundedJson(apiKey, searchTextPrompt, marketAnalyzerSchema, setLoadingMessage);
+      setResult(data);
     } catch (err) {
       console.error(err);
       onError(err.message || 'Failed to generate analysis.');
@@ -458,21 +745,19 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
     }
   };
 
-  // NEW: Helper to get sentiment color and icon
   const getSentimentStyle = (sentiment) => {
     switch (sentiment?.toLowerCase()) {
       case 'positive':
-        return { icon: <Smile className="text-green-500" />, color: "bg-green-500", text: "text-green-900" };
+        return { icon: <Smile style={{ color: THEME_COLORS.success }} />, color: THEME_COLORS.success, text: THEME_COLORS.textPrimary };
       case 'neutral':
-        return { icon: <Meh className="text-yellow-500" />, color: "bg-yellow-400", text: "text-yellow-900" };
+        return { icon: <Meh style={{ color: THEME_COLORS.accentTertiary }} />, color: THEME_COLORS.accentTertiary, text: THEME_COLORS.textPrimary };
       case 'negative':
-        return { icon: <Frown className="text-red-500" />, color: "bg-red-400", text: "text-red-900" };
+        return { icon: <Frown style={{ color: THEME_COLORS.error }} />, color: THEME_COLORS.error, text: THEME_COLORS.textPrimary };
       default:
-        return { icon: <Meh className="text-gray-500" />, color: "bg-gray-400", text: "text-gray-900" };
+        return { icon: <Meh style={{ color: THEME_COLORS.textSecondary }} />, color: THEME_COLORS.textSecondary, text: THEME_COLORS.textSecondary };
     }
   };
 
-  // NEW: Helper to format pie chart data
   const sentimentPieData = useMemo(() => {
     if (!result?.marketSentiment) return [];
     return [
@@ -483,41 +768,40 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
   }, [result]);
 
 
-  const PIE_COLORS = ['#34D399', '#FBBF24', '#EF4444']; // Green, Yellow, Red
+  const PIE_COLORS = [THEME_COLORS.success, THEME_COLORS.accentTertiary, THEME_COLORS.error];
 
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-bold text-gray-900">Market Position Analyzer</h2>
+      <h2 className="text-3xl font-bold" style={{ color: THEME_COLORS.textPrimary }}>Market Position Analyzer</h2>
       
       {/* Input Form */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-white rounded-xl shadow-lg border border-gray-100">
+      <div 
+        className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 rounded-xl shadow-lg border"
+        style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+      >
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Company Name</label>
           <StyledInput name="companyName" value={inputs.companyName} onChange={handleInputChange} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Company Website</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Company Website</label>
           <StyledInput name="website" value={inputs.website} onChange={handleInputChange} placeholder="https://company.com" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Location (Country/City)</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Location (Country/City)</label>
           <StyledInput name="location" value={inputs.location} onChange={handleInputChange} placeholder="e.g., Brazil" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Product / Service</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Product / Service</label>
           <StyledInput name="product" value={inputs.product} onChange={handleInputChange} placeholder="e.g., luxury electric vehicles" />
         </div>
         <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Competitors (comma-separated)</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Competitors (comma-separated)</label>
           <StyledInput name="competitors" value={inputs.competitors} onChange={handleInputChange} placeholder="e.g., Tesla, Rivian" />
         </div>
         <div className="md:col-span-2">
-          <StyledButton onClick={handleGenerateAnalysis} disabled={isLoading} className="w-full">
-            {isLoading ? (
-              <LoadingSpinner size={20} />
-            ) : (
-              'Generate Analysis'
-            )}
+          <StyledButton onClick={handleGenerateAnalysis} disabled={isLoading} className="w-full" isLoading={isLoading}>
+            Generate Analysis
           </StyledButton>
         </div>
       </div>
@@ -526,83 +810,81 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
       {isLoading && (
         <div className="flex justify-center items-center p-12">
           <LoadingSpinner size={48} />
-          <p className="ml-4 text-xl text-gray-600">{loadingMessage || 'Analyzing...'}</p> {/* MODIFIED */}
+          <p className="ml-4 text-xl" style={{ color: THEME_COLORS.textSecondary }}>{loadingMessage || 'Analyzing...'}</p>
         </div>
       )}
 
-      {/* NEW: Updated render logic */}
       {result && (
         <div className="space-y-8">
           
-          {/* Text Analysis Sections */}
-          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100 space-y-6">
-            <h3 className="text-2xl font-semibold text-gray-800 mb-4">
+          <div 
+            className="rounded-xl shadow-lg p-8 border space-y-6"
+            style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+          >
+            <h3 className="text-2xl font-semibold" style={{ color: THEME_COLORS.textPrimary }}>
               AI-Generated Market Analysis
             </h3>
             
-            {/* Cultural Insights */}
             <div>
-              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Cultural Insights</h4>
-              <p className="text-gray-700">{result.culturalInsights}</p>
+              <h4 className="text-xl font-semibold mb-2" style={{ color: THEME_COLORS.accentPrimary }}>Cultural Insights</h4>
+              <p style={{ color: THEME_COLORS.textSecondary }}>{result.culturalInsights}</p>
             </div>
 
-            {/* Market Sentiment */}
             <div>
-              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Market Sentiment Analysis</h4>
+              <h4 className="text-xl font-semibold mb-2" style={{ color: THEME_COLORS.accentPrimary }}>Market Sentiment Analysis</h4>
               <div className="flex items-center space-x-4 mb-2">
                 {getSentimentStyle(sentimentPieData.find(s => s.value === Math.max(...sentimentPieData.map(s => s.value)))?.name).icon}
-                <div className="flex space-x-4">
-                  <span className="flex items-center"><Smile size={18} className="text-green-500 mr-1" /> {result.marketSentiment.positive}% Positive</span>
-                  <span className="flex items-center"><Meh size={18} className="text-yellow-500 mr-1" /> {result.marketSentiment.neutral}% Neutral</span>
-                  <span className="flex items-center"><Frown size={18} className="text-red-500 mr-1" /> {result.marketSentiment.negative}% Negative</span>
+                <div className="flex space-x-4" style={{ color: THEME_COLORS.textSecondary }}>
+                  <span className="flex items-center"><Smile size={18} className="mr-1" style={{ color: THEME_COLORS.success }} /> {result.marketSentiment.positive}% Positive</span>
+                  <span className="flex items-center"><Meh size={18} className="mr-1" style={{ color: THEME_COLORS.accentTertiary }} /> {result.marketSentiment.neutral}% Neutral</span>
+                  <span className="flex items-center"><Frown size={18} className="mr-1" style={{ color: THEME_COLORS.error }} /> {result.marketSentiment.negative}% Negative</span>
                 </div>
               </div>
-              <p className="text-gray-700">{result.marketSentiment.summary}</p>
+              <p style={{ color: THEME_COLORS.textSecondary }}>{result.marketSentiment.summary}</p>
             </div>
 
-            {/* Consumer Sentiment */}
             <div>
-              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Consumer Sentiment Analysis</h4>
-              <p className="text-gray-700">{result.consumerSentimentAnalysis}</p>
+              <h4 className="text-xl font-semibold mb-2" style={{ color: THEME_COLORS.accentPrimary }}>Consumer Sentiment Analysis</h4>
+              <p style={{ color: THEME_COLORS.textSecondary }}>{result.consumerSentimentAnalysis}</p>
             </div>
 
-            {/* Key Cultural Themes */}
             <div>
-              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Key Cultural Themes</h4>
-              <ul className="list-disc list-inside text-gray-700 space-y-1">
+              <h4 className="text-xl font-semibold mb-2" style={{ color: THEME_COLORS.accentPrimary }}>Key Cultural Themes</h4>
+              <ul className="list-disc list-inside space-y-1" style={{ color: THEME_COLORS.textSecondary }}>
                 {result.keyCulturalThemes.map(theme => <li key={theme}>{theme}</li>)}
               </ul>
             </div>
 
-            {/* Recommendations */}
             <div>
-              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Recommendations</h4>
-              <ul className="list-decimal list-inside text-gray-700 space-y-1">
+              <h4 className="text-xl font-semibold mb-2" style={{ color: THEME_COLORS.accentPrimary }}>Recommendations</h4>
+              <ul className="list-decimal list-inside space-y-1" style={{ color: THEME_COLORS.textSecondary }}>
                 {result.recommendations.map(rec => <li key={rec}>{rec}</li>)}
               </ul>
             </div>
           </div>
 
-          {/* NEW: Cultural Value Alignment Table */}
-          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100">
-            <h3 className="text-2xl font-semibold text-gray-800 mb-4">
+          <div 
+            className="rounded-xl shadow-lg p-8 border"
+            style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+          >
+            <h3 className="text-2xl font-semibold mb-4" style={{ color: THEME_COLORS.textPrimary }}>
               Cultural Value Alignment
             </h3>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full divide-y" style={{ divideColor: THEME_COLORS.border }}>
+                <thead style={{ backgroundColor: THEME_COLORS.background }}>
                   <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cultural Value / Trait</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Brand Alignment</th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Implication for Success</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: THEME_COLORS.textSecondary }}>Cultural Value / Trait</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: THEME_COLORS.textSecondary }}>Brand Alignment</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: THEME_COLORS.textSecondary }}>Implication for Success</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="divide-y" style={{ divideColor: THEME_COLORS.border }}>
                   {result.culturalValueAlignment.map((item) => (
                     <tr key={item.trait}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.trait}</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.alignment}</td>
-                      <td className="px-6 py-4 text-sm text-gray-500">{item.implication}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium" style={{ color: THEME_COLORS.textPrimary }}>{item.trait}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm" style={{ color: THEME_COLORS.textSecondary }}>{item.alignment}</td>
+                      <td className="px-6 py-4 text-sm" style={{ color: THEME_COLORS.textSecondary }}>{item.implication}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -615,69 +897,108 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <ChartContainer title="Market Sentiment">
               <PieChart>
-                <Pie data={sentimentPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill="#8884d8" label>
+                <Pie data={sentimentPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill={THEME_COLORS.accentPrimary} label={{ fill: THEME_COLORS.textPrimary }}>
                   {sentimentPieData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
-                <Tooltip />
-                <Legend />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+                  itemStyle={{ color: THEME_COLORS.textPrimary }}
+                />
+                <Legend wrapperStyle={{ color: THEME_COLORS.textSecondary }} />
               </PieChart>
             </ChartContainer>
 
             <ChartContainer title="Performance Benchmarks">
               <BarChart data={result.performanceBenchmarks}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="metric" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="yourBrand" name="Your Brand" fill="#4F46E5" />
-                <Bar dataKey="industryAverage" name="Industry Average" fill="#A5B4FC" />
+                <CartesianGrid strokeDasharray="3 3" stroke={THEME_COLORS.border} />
+                <XAxis dataKey="metric" stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                <YAxis stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+                  itemStyle={{ color: THEME_COLORS.textPrimary }}
+                />
+                <Legend wrapperStyle={{ color: THEME_COLORS.textSecondary }} />
+                <Bar dataKey="yourBrand" name="Your Brand" fill={THEME_COLORS.accentPrimary} />
+                <Bar dataKey="industryAverage" name="Industry Average" fill={THEME_COLORS.accentTertiary} />
               </BarChart>
             </ChartContainer>
 
             <ChartContainer title="Brand Performance Radar">
               <RadarChart cx="50%" cy="50%" outerRadius={100} data={result.brandPerformanceRadar}>
-                <PolarGrid />
-                <PolarAngleAxis dataKey="subject" />
-                <PolarRadiusAxis angle={30} domain={[0, 100]} />
-                <Radar name="Your Brand" dataKey="A" stroke="#4F46E5" fill="#4F46E5" fillOpacity={0.6} />
+                <PolarGrid stroke={THEME_COLORS.border} />
+                <PolarAngleAxis dataKey="subject" stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                <PolarRadiusAxis angle={30} domain={[0, 100]} stroke={THEME_COLORS.border} tick={{ fill: THEME_COLORS.textSecondary }} />
+                <Radar name="Your Brand" dataKey="A" stroke={THEME_COLORS.accentPrimary} fill={THEME_COLORS.accentPrimary} fillOpacity={0.6} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+                  itemStyle={{ color: THEME_COLORS.textPrimary }}
+                />
               </RadarChart>
             </ChartContainer>
 
-            {/* NEW: Dynamic Heatmap */}
-            <ChartContainer title="Regional Performance Heatmap">
-                <div className="flex items-center justify-center h-full">
-                  <div className="grid grid-cols-3 gap-4 p-4">
+            {/* MODIFICATION HERE: Replaced heatmap with a color-coded table */}
+            <div 
+              className="rounded-xl shadow-lg p-6 border lg:col-span-1" // Use full chart container styling but allow it to size by content
+              style={{ 
+                backgroundColor: THEME_COLORS.cardBackground,
+                borderColor: THEME_COLORS.border 
+              }}
+            >
+              <h3 
+                className="text-xl font-semibold mb-4"
+                style={{ color: THEME_COLORS.textPrimary }}
+              >
+                Regional Performance
+              </h3>
+              <div className="overflow-x-auto">
+                <table className="min-w-full divide-y" style={{ divideColor: THEME_COLORS.border }}>
+                  <thead style={{ backgroundColor: THEME_COLORS.background }}>
+                    <tr>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: THEME_COLORS.textSecondary }}>Region</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: THEME_COLORS.textSecondary }}>Sentiment</th>
+                      <th scope="col" className="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider" style={{ color: THEME_COLORS.textSecondary }}>Summary</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y" style={{ divideColor: THEME_COLORS.border }}>
                     {result.regionalPerformance.map((item) => {
-                      const { icon, color, text } = getSentimentStyle(item.sentiment);
+                      const { icon, color } = getSentimentStyle(item.sentiment);
                       return (
-                        <div key={item.region} className={`w-28 h-28 ${color} rounded-lg flex flex-col items-center justify-center p-2 shadow-md`}>
-                          <span className={`font-bold ${text} text-center`}>{item.region}</span>
-                          {icon}
-                          <span className={`text-xs ${text} text-center mt-1`}>{item.summary}</span>
-                        </div>
+                        <tr key={item.region}>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium" style={{ color: THEME_COLORS.textPrimary }}>{item.region}</td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium" style={{ color: color }}>
+                            <div className="flex items-center">
+                              {React.cloneElement(icon, { size: 18, className: "mr-2" })}
+                              {item.sentiment}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm" style={{ color: THEME_COLORS.textSecondary, whiteSpace: 'normal' }}>{item.summary}</td>
+                        </tr>
                       );
                     })}
-                  </div>
-                </div>
-            </ChartContainer>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            {/* END MODIFICATION */}
 
             <ChartContainer title="Competitor Benchmark">
               <BarChart data={result.competitorBenchmarks}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="metric" />
-                <YAxis />
-                <Tooltip />
-                <Legend />
-                <Bar dataKey="yourBrand" name="Your Brand" fill="#4F46E5" />
-                <Bar dataKey="competitor1" name={inputs.competitors.split(',')[0]?.trim() || 'Competitor 1'} fill="#A5B4FC" />
-                <Bar dataKey="competitor2" name={inputs.competitors.split(',')[1]?.trim() || 'Competitor 2'} fill="#C7D2FE" />
+                <CartesianGrid strokeDasharray="3 3" stroke={THEME_COLORS.border} />
+                <XAxis dataKey="metric" stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                <YAxis stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+                  itemStyle={{ color: THEME_COLORS.textPrimary }}
+                />
+                <Legend wrapperStyle={{ color: THEME_COLORS.textSecondary }} />
+                <Bar dataKey="yourBrand" name="Your Brand" fill={THEME_COLORS.accentPrimary} />
+                <Bar dataKey="competitor1" name={inputs.competitors.split(',')[0]?.trim() || 'Competitor 1'} fill={THEME_COLORS.accentSecondary} />
+                <Bar dataKey="competitor2" name={inputs.competitors.split(',')[1]?.trim() || 'Competitor 2'} fill={THEME_COLORS.accentTertiary} />
               </BarChart>
             </ChartContainer>
             
-            {/* Keep illustrative trend data for now, or could ask AI for it */}
             <ChartContainer title="Sentiment & Engagement Trend (Illustrative)">
               <LineChart data={[
                   { name: 'Jan', 'Sentiment Score': 60, 'Engagement Rate': 2.5 },
@@ -687,14 +1008,17 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
                   { name: 'May', 'Sentiment Score': 68, 'Engagement Rate': 3.0 },
                   { name: 'Jun', 'Sentiment Score': 72, 'Engagement Rate': 3.2 },
                 ]}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
-                <YAxis yAxisId="left" />
-                <YAxis yAxisId="right" orientation="right" />
-                <Tooltip />
-                <Legend />
-                <Line yAxisId="left" type="monotone" dataKey="Sentiment Score" stroke="#4F46E5" activeDot={{ r: 8 }} />
-                <Line yAxisId="right" type="monotone" dataKey="Engagement Rate" stroke="#34D399" />
+                <CartesianGrid strokeDasharray="3 3" stroke={THEME_COLORS.border} />
+                <XAxis dataKey="name" stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                <YAxis yAxisId="left" stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                <YAxis yAxisId="right" orientation="right" stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                <Tooltip 
+                  contentStyle={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+                  itemStyle={{ color: THEME_COLORS.textPrimary }}
+                />
+                <Legend wrapperStyle={{ color: THEME_COLORS.textSecondary }} />
+                <Line yAxisId="left" type="monotone" dataKey="Sentiment Score" stroke={THEME_COLORS.accentPrimary} activeDot={{ r: 8 }} />
+                <Line yAxisId="right" type="monotone" dataKey="Engagement Rate" stroke={THEME_COLORS.accentSecondary} />
               </LineChart>
             </ChartContainer>
           </div>
@@ -704,7 +1028,47 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
   );
 };
 
-// --- Tab 3: Campaign Forge ---
+// --- Tab 4: Campaign Forge ---
+const campaignSchema = {
+  type: "OBJECT",
+  properties: {
+    strategy: { type: "STRING" },
+    rationale: { type: "STRING" },
+    kpis: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          metric: { type: "STRING" },
+          value: { type: "STRING" }
+        }
+      }
+    },
+    framework: {
+      type: "OBJECT",
+      properties: {
+        coreMessage: { type: "STRING" },
+        channelStrategy: { type: "STRING" },
+        contentCalendar: { type: "STRING" },
+        riskMitigation: { type: "STRING" }
+      }
+    },
+    concepts: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          id: { type: "NUMBER" },
+          title: { type: "STRING" },
+          summary: { type: "STRING" },
+          visualIdea: { type: "STRING" }
+        }
+      }
+    }
+  },
+  required: ["strategy", "rationale", "kpis", "framework", "concepts"]
+};
+
 const CampaignForgeTab = ({ apiKey, onError }) => {
   const [inputs, setInputs] = useState({
     companyName: '',
@@ -714,7 +1078,7 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
     imageURL: '',
   });
   const [isStrategyLoading, setIsStrategyLoading] = useState(false);
-  const [loadingMessage, setLoadingMessage] = useState(''); // NEW
+  const [loadingMessage, setLoadingMessage] = useState('');
   const [isImageLoading, setIsImageLoading] = useState(false);
   
   const [strategyResult, setStrategyResult] = useState(null);
@@ -724,46 +1088,6 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
   const handleInputChange = (e) => {
     const { name, value } = e.target;
     setInputs((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const campaignSchema = {
-    type: "OBJECT",
-    properties: {
-      strategy: { type: "STRING" },
-      rationale: { type: "STRING" },
-      kpis: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            metric: { type: "STRING" },
-            value: { type: "STRING" }
-          }
-        }
-      },
-      framework: {
-        type: "OBJECT",
-        properties: {
-          coreMessage: { type: "STRING" },
-          channelStrategy: { type: "STRING" },
-          contentCalendar: { type: "STRING" },
-          riskMitigation: { type: "STRING" }
-        }
-      },
-      concepts: {
-        type: "ARRAY",
-        items: {
-          type: "OBJECT",
-          properties: {
-            id: { type: "NUMBER" },
-            title: { type: "STRING" },
-            summary: { type: "STRING" },
-            visualIdea: { type: "STRING" }
-          }
-        }
-      }
-    },
-    required: ["strategy", "rationale", "kpis", "framework", "concepts"]
   };
 
   const handleGenerateStrategy = async () => {
@@ -776,83 +1100,25 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
     setSelectedConcept(null);
     setGeneratedImages([]);
 
-    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    const searchTextPrompt = `
+      Create a full campaign strategy for:
+      - Company: ${inputs.companyName} (${inputs.website})
+      - Target: ${inputs.city}, ${inputs.country}
+      - Reference Image (Optional): ${inputs.imageURL}
 
-    // ***************************************************************
-    // FIX: Perform a 2-step call to avoid the 400 error
-    // ***************************************************************
-
+      Provide a detailed text report covering:
+      1.  strategy: A brief campaign strategy.
+      2.  rationale: The rationale behind it.
+      3.  kpis: A list of 3-4 conservative KPI estimations (e.g., Brand Awareness Lift: 5-10%).
+      4.  framework: Details for coreMessage, channelStrategy, contentCalendar, and riskMitigation.
+      5.  concepts: A list of 6 distinct campaign concepts. Each concept should have a title, summary, and a visualIdea (a short description for an image generator).
+    `;
+    
     try {
-      // STEP 1: Get grounded text data using Google Search
-      setLoadingMessage('Developing strategy...');
-      
-      const searchTextPrompt = `
-        Create a full campaign strategy for:
-        - Company: ${inputs.companyName} (${inputs.website})
-        - Target: ${inputs.city}, ${inputs.country}
-        - Reference Image (Optional): ${inputs.imageURL}
-
-        Provide a detailed text report covering:
-        1.  strategy: A brief campaign strategy.
-        2.  rationale: The rationale behind it.
-        3.  kpis: A list of 3-4 conservative KPI estimations (e.g., Brand Awareness Lift: 5-10%).
-        4.  framework: Details for coreMessage, channelStrategy, contentCalendar, and riskMitigation.
-        5.  concepts: A list of 6 distinct campaign concepts. Each concept should have a title, summary, and a visualIdea (a short description for an image generator).
-      `;
-      
-      const searchPayload = {
-        contents: [{ parts: [{ text: searchTextPrompt }] }],
-        tools: [{ "google_search": {} }],
-      };
-
-      const searchData = await fetchWithBackoff(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(searchPayload),
-      });
-
-      const groundedText = searchData.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (!groundedText) {
-        throw new Error('Step 1 Failed: No content returned from strategy generation.');
-      }
-
-      // STEP 2: Parse the grounded text into the required JSON schema
-      setLoadingMessage('Formatting campaign...');
-
-      const parseJsonPrompt = `
-        Parse the following campaign strategy text and convert it into a valid JSON object matching the provided schema.
-
-        TEXT TO PARSE:
-        ---
-        ${groundedText}
-        ---
-
-        Assign sequential IDs (1-6) to the 6 concepts.
-      `;
-
-      const jsonPayload = {
-        contents: [{ parts: [{ text: parseJsonPrompt }] }],
-        // NO 'tools' when 'generationConfig' is used for JSON
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: campaignSchema
-        }
-      };
-
-      const jsonData = await fetchWithBackoff(apiUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(jsonPayload),
-      });
-
-      const jsonText = jsonData.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (jsonText) {
-        const parsedJson = JSON.parse(jsonText);
-        setStrategyResult(parsedJson);
-      } else {
-        throw new Error('Step 2 Failed: No JSON content returned from parsing.');
-      }
-
+      const data = await fetchGroundedJson(apiKey, searchTextPrompt, campaignSchema, setLoadingMessage);
+      // Assign sequential IDs if not provided
+      data.concepts = data.concepts.map((concept, index) => ({ ...concept, id: concept.id || index + 1 }));
+      setStrategyResult(data);
     } catch (err) {
       console.error(err);
       onError(err.message || 'Failed to generate strategy.');
@@ -876,7 +1142,8 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
       The concept is: ${selectedConcept.title}.
       Visual Idea: ${selectedConcept.visualIdea}.
       Target location: ${inputs.city}, ${inputs.country}.
-      Style: Modern, professional, engaging.
+      Style: Modern, professional, tech-focused, dark theme.
+      Use a color palette of deep purple, indigo, bright violet, and white text.
     `;
     
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
@@ -912,14 +1179,12 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
   const handleConceptClick = (concept) => {
     setSelectedConcept(concept);
     setGeneratedImages([]); // Clear old images
-    // Scroll to the concept detail section
     const detailElement = document.getElementById('concept-detail');
     if (detailElement) {
       detailElement.scrollIntoView({ behavior: 'smooth' });
     }
   };
   
-  // Illustrative data for strategy charts
   const strategyChartData = useMemo(() => ({
     channel: [
       { name: 'Social Media', value: 40 },
@@ -937,33 +1202,36 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
 
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-bold text-gray-900">Campaign Forge</h2>
+      <h2 className="text-3xl font-bold" style={{ color: THEME_COLORS.textPrimary }}>Campaign Forge</h2>
 
       {/* Input Form */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 bg-white rounded-xl shadow-lg border border-gray-100">
+      <div 
+        className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6 rounded-xl shadow-lg border"
+        style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+      >
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Company Name</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Company Name</label>
           <StyledInput name="companyName" value={inputs.companyName} onChange={handleInputChange} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Company Website</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Company Website</label>
           <StyledInput name="website" value={inputs.website} onChange={handleInputChange} placeholder="https://company.com" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Target Country</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Target Country</label>
           <StyledInput name="country" value={inputs.country} onChange={handleInputChange} placeholder="e.g., India" />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Target City</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Target City</label>
           <StyledInput name="city" value={inputs.city} onChange={handleInputChange} placeholder="e.g., Mumbai" />
         </div>
         <div className="md:col-span-2">
-          <label className="block text-sm font-medium text-gray-700 mb-1">Optional: Current Campaign Image URL</label>
+          <label className="block text-sm font-medium mb-1" style={{ color: THEME_COLORS.textSecondary }}>Optional: Current Campaign Image URL</label>
           <StyledInput name="imageURL" value={inputs.imageURL} onChange={handleInputChange} placeholder="https://.../image.png" />
         </div>
         <div className="md:col-span-2">
-          <StyledButton onClick={handleGenerateStrategy} disabled={isStrategyLoading} className="w-full">
-            {isStrategyLoading ? <LoadingSpinner size={20} /> : 'Generate Strategy & Concepts'}
+          <StyledButton onClick={handleGenerateStrategy} disabled={isStrategyLoading} className="w-full" isLoading={isStrategyLoading}>
+            Generate Strategy & Concepts
           </StyledButton>
         </div>
       </div>
@@ -971,7 +1239,7 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
       {isStrategyLoading && (
         <div className="flex justify-center items-center p-12">
           <LoadingSpinner size={48} />
-          <p className="ml-4 text-xl text-gray-600">{loadingMessage || 'Forging your campaign...'}</p> {/* MODIFIED */}
+          <p className="ml-4 text-xl" style={{ color: THEME_COLORS.textSecondary }}>{loadingMessage || 'Forging your campaign...'}</p>
         </div>
       )}
 
@@ -979,82 +1247,94 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
       {strategyResult && (
         <div className="space-y-8">
           
-          {/* Strategy & KPIs */}
-          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100">
-            <h3 className="text-2xl font-semibold text-gray-800 mb-4">
+          <div 
+            className="rounded-xl shadow-lg p-8 border"
+            style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+          >
+            <h3 className="text-2xl font-semibold mb-4" style={{ color: THEME_COLORS.textPrimary }}>
               Your AI-Generated Campaign Strategy
             </h3>
             <div className="space-y-4">
               <div>
-                <h4 className="text-lg font-semibold text-indigo-600">Campaign Strategy</h4>
-                <p className="text-gray-700">{strategyResult.strategy}</p>
+                <h4 className="text-lg font-semibold" style={{ color: THEME_COLORS.accentPrimary }}>Campaign Strategy</h4>
+                <p style={{ color: THEME_COLORS.textSecondary }}>{strategyResult.strategy}</p>
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-indigo-600">Rationale</h4>
-                <p className="text-gray-700">{strategyResult.rationale}</p>
+                <h4 className="text-lg font-semibold" style={{ color: THEME_COLORS.accentPrimary }}>Rationale</h4>
+                <p style={{ color: THEME_COLORS.textSecondary }}>{strategyResult.rationale}</p>
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-indigo-600">Conservative KPI Estimations</h4>
-                <ul className="list-disc list-inside text-gray-700">
+                <h4 className="text-lg font-semibold" style={{ color: THEME_COLORS.accentPrimary }}>Conservative KPI Estimations</h4>
+                <ul className="list-disc list-inside" style={{ color: THEME_COLORS.textSecondary }}>
                   {strategyResult.kpis.map(kpi => (
-                    <li key={kpi.metric}><strong>{kpi.metric}:</strong> {kpi.value}</li>
+                    <li key={kpi.metric}><strong style={{ color: THEME_COLORS.textPrimary }}>{kpi.metric}:</strong> {kpi.value}</li>
                   ))}
                 </ul>
               </div>
             </div>
           </div>
           
-          {/* Framework & Charts */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-            <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100 space-y-4">
-              <h3 className="text-2xl font-semibold text-gray-800 mb-4">
+            <div 
+              className="rounded-xl shadow-lg p-8 border space-y-4"
+              style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+            >
+              <h3 className="text-2xl font-semibold mb-4" style={{ color: THEME_COLORS.textPrimary }}>
                 Strategic Framework
               </h3>
               <div>
-                <h4 className="text-lg font-semibold text-indigo-600">Core Message</h4>
-                <p className="text-gray-700">{strategyResult.framework.coreMessage}</p>
+                <h4 className="text-lg font-semibold" style={{ color: THEME_COLORS.accentPrimary }}>Core Message</h4>
+                <p style={{ color: THEME_COLORS.textSecondary }}>{strategyResult.framework.coreMessage}</p>
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-indigo-600">Channel Strategy</h4>
-                <p className="text-gray-700">{strategyResult.framework.channelStrategy}</p>
+                <h4 className="text-lg font-semibold" style={{ color: THEME_COLORS.accentPrimary }}>Channel Strategy</h4>
+                <p style={{ color: THEME_COLORS.textSecondary }}>{strategyResult.framework.channelStrategy}</p>
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-indigo-600">Content Calendar</h4>
-                <p className="text-gray-700">{strategyResult.framework.contentCalendar}</p>
+                <h4 className="text-lg font-semibold" style={{ color: THEME_COLORS.accentPrimary }}>Content Calendar</h4>
+                <p style={{ color: THEME_COLORS.textSecondary }}>{strategyResult.framework.contentCalendar}</p>
               </div>
               <div>
-                <h4 className="text-lg font-semibold text-indigo-600">Risk Mitigation</h4>
-                <p className="text-gray-700">{strategyResult.framework.riskMitigation}</p>
+                <h4 className="text-lg font-semibold" style={{ color: THEME_COLORS.accentPrimary }}>Risk Mitigation</h4>
+                <p style={{ color: THEME_COLORS.textSecondary }}>{strategyResult.framework.riskMitigation}</p>
               </div>
             </div>
             
             <div className="space-y-8">
               <ChartContainer title="Channel Performance (Illustrative)">
                 <BarChart data={strategyChartData.channel} layout="vertical">
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis type="number" />
-                  <YAxis type="category" dataKey="name" width={100} />
-                  <Tooltip />
-                  <Bar dataKey="value" fill="#4F46E5" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={THEME_COLORS.border} />
+                  <XAxis type="number" stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                  <YAxis type="category" dataKey="name" width={100} stroke={THEME_COLORS.textSecondary} tick={{ fill: THEME_COLORS.textSecondary }} />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+                    itemStyle={{ color: THEME_COLORS.textPrimary }}
+                  />
+                  <Bar dataKey="value" fill={THEME_COLORS.accentPrimary} />
                 </BarChart>
               </ChartContainer>
               
               <ChartContainer title="Audience Segmentation (Illustrative)">
                 <PieChart>
-                  <Pie data={strategyChartData.audience} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill="#8884d8" label>
+                  <Pie data={strategyChartData.audience} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill={THEME_COLORS.accentPrimary} label={{ fill: THEME_COLORS.textPrimary }}>
                     {strategyChartData.audience.map((entry, index) => (
-                      <Cell key={`cell-${index}`} fill={['#4F46E5', '#A5B4FC', '#C7D2FE'][index % 3]} />
+                      <Cell key={`cell-${index}`} fill={[THEME_COLORS.accentPrimary, THEME_COLORS.accentSecondary, THEME_COLORS.accentTertiary][index % 3]} />
                     ))}
                   </Pie>
-                  <Tooltip />
+                  <Tooltip 
+                    contentStyle={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+                    itemStyle={{ color: THEME_COLORS.textPrimary }}
+                  />
                 </PieChart>
               </ChartContainer>
             </div>
           </div>
           
-          {/* Campaign Concepts */}
-          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100">
-            <h3 className="text-2xl font-semibold text-gray-800 mb-6">
+          <div 
+            className="rounded-xl shadow-lg p-8 border"
+            style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+          >
+            <h3 className="text-2xl font-semibold mb-6" style={{ color: THEME_COLORS.textPrimary }}>
               6 AI-Generated Campaign Concepts
             </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -1062,42 +1342,50 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
                 <button
                   key={concept.id}
                   onClick={() => handleConceptClick(concept)}
-                  className={`p-6 bg-indigo-50 rounded-lg border-2 text-left transition-all
-                    ${selectedConcept?.id === concept.id ? 'border-indigo-600 ring-2 ring-indigo-300' : 'border-indigo-100 hover:border-indigo-300'}`}
+                  className="p-6 rounded-lg border-2 text-left transition-all"
+                  style={{
+                    backgroundColor: THEME_COLORS.background,
+                    borderColor: selectedConcept?.id === concept.id ? THEME_COLORS.accentPrimary : THEME_COLORS.border,
+                    boxShadow: selectedConcept?.id === concept.id ? `0 0 0 2px ${THEME_COLORS.accentPrimary}80` : 'none'
+                  }}
                 >
-                  <h4 className="text-lg font-bold text-indigo-800">{concept.title}</h4>
-                  <p className="text-sm text-gray-700 mt-2">{concept.summary}</p>
+                  <h4 className="text-lg font-bold" style={{ color: THEME_COLORS.textPrimary }}>{concept.title}</h4>
+                  <p className="text-sm mt-2" style={{ color: THEME_COLORS.textSecondary }}>{concept.summary}</p>
                 </button>
               ))}
             </div>
           </div>
           
-          {/* Selected Concept Detail & Image Gen */}
           {selectedConcept && (
-            <div id="concept-detail" className="bg-white rounded-xl shadow-lg p-8 border border-gray-100">
-              <h3 className="text-2xl font-semibold text-gray-800 mb-4">
-                Concept Detail: <span className="text-indigo-600">{selectedConcept.title}</span>
+            <div 
+              id="concept-detail" 
+              className="rounded-xl shadow-lg p-8 border"
+              style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+            >
+              <h3 className="text-2xl font-semibold mb-4" style={{ color: THEME_COLORS.textPrimary }}>
+                Concept Detail: <span style={{ color: THEME_COLORS.accentPrimary }}>{selectedConcept.title}</span>
               </h3>
-              <p className="text-gray-700 mb-4">{selectedConcept.summary}</p>
-              <div className="bg-gray-100 p-4 rounded-lg">
-                <p className="font-semibold text-gray-800">Visual Idea:</p>
-                <p className="text-gray-700 italic">"{selectedConcept.visualIdea}"</p>
+              <p className="mb-4" style={{ color: THEME_COLORS.textSecondary }}>{selectedConcept.summary}</p>
+              <div className="p-4 rounded-lg" style={{ backgroundColor: THEME_COLORS.background }}>
+                <p className="font-semibold" style={{ color: THEME_COLORS.textPrimary }}>Visual Idea:</p>
+                <p className="italic" style={{ color: THEME_COLORS.textSecondary }}>"{selectedConcept.visualIdea}"</p>
               </div>
               
-              <StyledButton onClick={handleGenerateImages} disabled={isImageLoading} className="mt-6">
-                {isImageLoading ? <LoadingSpinner size={20} /> : 'Generate Campaign Images (2)'}
+              <StyledButton onClick={handleGenerateImages} disabled={isImageLoading} className="mt-6" isLoading={isImageLoading}>
+                <ImageIcon size={18} className="mr-2" />
+                Generate Campaign Images (2)
               </StyledButton>
               
               {isImageLoading && (
                 <div className="flex justify-center items-center p-12">
                   <LoadingSpinner size={48} />
-                  <p className="ml-4 text-xl text-gray-600">Generating images...</p>
+                  <p className="ml-4 text-xl" style={{ color: THEME_COLORS.textSecondary }}>Generating images...</p>
                 </div>
               )}
               
               {generatedImages.length > 0 && (
                 <div className="mt-8">
-                  <h4 className="text-xl font-semibold text-gray-800 mb-4">Generated Images</h4>
+                  <h4 className="text-xl font-semibold mb-4" style={{ color: THEME_COLORS.textPrimary }}>Generated Images</h4>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {generatedImages.map((src, index) => (
                       <img
@@ -1119,25 +1407,41 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
   );
 };
 
-// --- Tab 4: Pricing ---
+// --- Tab 5: Pricing ---
 const PricingCard = ({ plan, price, features, isFeatured = false }) => (
-  <div className={`p-8 rounded-2xl border ${isFeatured ? 'bg-indigo-600 text-white border-indigo-700 shadow-2xl' : 'bg-white text-gray-900 border-gray-200 shadow-lg'}`}>
+  <div 
+    className={`p-8 rounded-2xl border ${isFeatured ? 'shadow-2xl scale-105' : 'shadow-lg'}`}
+    style={{
+      backgroundColor: isFeatured ? THEME_COLORS.accentPrimary : THEME_COLORS.cardBackground,
+      borderColor: isFeatured ? THEME_COLORS.accentPrimary : THEME_COLORS.border,
+      color: isFeatured ? 'white' : THEME_COLORS.textPrimary,
+    }}
+  >
     <h3 className="text-2xl font-semibold">{plan}</h3>
-    <p className={`mt-2 text-4xl font-bold ${isFeatured ? 'text-white' : 'text-gray-900'}`}>
+    <p className="mt-2 text-4xl font-bold">
       {price}
-      {price.startsWith('$') && <span className={`text-sm font-medium ${isFeatured ? 'text-indigo-100' : 'text-gray-500'}`}>/mo</span>}
+      {price.startsWith('$') && 
+        <span className={`text-sm font-medium ${isFeatured ? 'text-purple-100' : 'text-gray-400'}`}>/mo</span>
+      }
     </p>
-    <ul className={`mt-6 space-y-3 ${isFeatured ? 'text-indigo-50' : 'text-gray-600'}`}>
+    <ul className={`mt-6 space-y-3 ${isFeatured ? 'text-purple-50' : ''}`}
+        style={{ color: isFeatured ? 'white' : THEME_COLORS.textSecondary }}
+    >
       {features.map((feature, index) => (
         <li key={index} className="flex items-center space-x-3">
-          <Check size={20} className={isFeatured ? 'text-white' : 'text-indigo-600'} />
+          <Check size={20} style={{ color: isFeatured ? 'white' : THEME_COLORS.success }} />
           <span>{feature}</span>
         </li>
       ))}
     </ul>
     <StyledButton
       className="w-full mt-8"
-      variant={isFeatured ? 'secondary' : 'primary'}
+      style={{
+        backgroundColor: isFeatured ? 'white' : THEME_COLORS.accentSecondary,
+        color: isFeatured ? THEME_COLORS.accentPrimary : 'white',
+        '--tw-ring-color': isFeatured ? 'white' : THEME_COLORS.accentSecondary,
+        '--tw-ring-offset-color': isFeatured ? THEME_COLORS.accentPrimary : THEME_COLORS.cardBackground
+      }}
     >
       {plan === 'Enterprise' ? 'Contact Us' : 'Get Started'}
     </StyledButton>
@@ -1166,10 +1470,10 @@ const PricingTab = () => {
 
   return (
     <div className="space-y-8">
-      <h2 className="text-3xl font-bold text-gray-900 text-center">
+      <h2 className="text-3xl font-bold text-center" style={{ color: THEME_COLORS.textPrimary }}>
         Simple, Transparent Pricing
       </h2>
-      <p className="text-xl text-gray-600 text-center max-w-2xl mx-auto">
+      <p className="text-xl text-center max-w-2xl mx-auto" style={{ color: THEME_COLORS.textSecondary }}>
         Choose the plan that's right for your team and start building
         smarter campaigns today.
       </p>
@@ -1182,23 +1486,27 @@ const PricingTab = () => {
   );
 };
 
-// --- Tab 5: About Us ---
+// --- Tab 6: About Us ---
 const AboutUsTab = () => {
   return (
-    <div className="max-w-3xl mx-auto bg-white p-10 rounded-xl shadow-lg border border-gray-100">
-      <h2 className="text-3xl font-bold text-gray-900 mb-6 text-center">
+    <div 
+      className="max-w-3xl mx-auto p-10 rounded-xl shadow-lg border"
+      style={{ backgroundColor: THEME_COLORS.cardBackground, borderColor: THEME_COLORS.border }}
+    >
+      <h2 className="text-3xl font-bold text-center mb-6" style={{ color: THEME_COLORS.textPrimary }}>
         About Us
       </h2>
       <div className="text-center mb-8">
         <img
-          src="https://placehold.co/128x128/EFEBFF/4F46E5?text=YK"
+          src={`https://placehold.co/128x128/${THEME_COLORS.accentPrimary.substring(1)}/FFFFFF?text=YK`}
           alt="Yash Kapadia"
-          className="w-32 h-32 rounded-full mx-auto shadow-md border-4 border-white"
+          className="w-32 h-32 rounded-full mx-auto shadow-md border-4"
+          style={{ borderColor: THEME_COLORS.cardBackground }}
         />
-        <h3 className="text-2xl font-semibold text-gray-800 mt-4">Yash Kapadia</h3>
-        <p className="text-indigo-600 font-medium">IIM Ahmedabad</p>
+        <h3 className="text-2xl font-semibold mt-4" style={{ color: THEME_COLORS.textPrimary }}>Yash Kapadia</h3>
+        <p className="font-medium" style={{ color: THEME_COLORS.accentPrimary }}>IIM Ahmedabad</p>
       </div>
-      <p className="text-gray-700 leading-relaxed text-lg text-center">
+      <p className="leading-relaxed text-lg text-center" style={{ color: THEME_COLORS.textSecondary }}>
         This tool was developed by Yash Kapadia, a student at IIM
         Ahmedabad, as part of the 'GenAI in Marketing' course. 'Naya Daur'
         is a project dedicated to exploring the practical intersection of
@@ -1215,6 +1523,7 @@ const AboutUsTab = () => {
 const AppHeader = ({ activeTab, onTabClick }) => {
   const tabs = [
     { id: 'welcome', label: 'Welcome', icon: Home },
+    { id: 'persona', label: 'Persona Architect', icon: Users }, // ADDED
     { id: 'analyzer', label: 'Market Analyzer', icon: Target },
     { id: 'forge', label: 'Campaign Forge', icon: WandSparkles },
     { id: 'pricing', label: 'Pricing', icon: DollarSign },
@@ -1222,27 +1531,34 @@ const AppHeader = ({ activeTab, onTabClick }) => {
   ];
 
   return (
-    <header className="bg-white shadow-md sticky top-0 z-40">
+    <header 
+      className="shadow-md sticky top-0 z-40 border-b"
+      style={{ 
+        backgroundColor: `${THEME_COLORS.cardBackground}E6`, // Translucent
+        borderColor: THEME_COLORS.border,
+        backdropFilter: 'blur(10px)'
+      }}
+    >
       <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex justify-between items-center h-20">
           {/* Logo */}
           <div className="flex-shrink-0 flex items-center">
-            <Bot size={32} className="text-indigo-600" />
-            <span className="ml-3 text-2xl font-bold text-gray-900">Naya Daur</span>
+            <Bot size={32} style={{ color: THEME_COLORS.accentPrimary }} />
+            <span className="ml-3 text-2xl font-bold" style={{ color: THEME_COLORS.textPrimary }}>Naya Daur</span>
           </div>
           
           {/* Desktop Nav */}
-          <div className="hidden md:flex md:space-x-4">
+          <div className="hidden md:flex md:space-x-2">
             {tabs.map(tab => (
               <button
                 key={tab.id}
                 onClick={() => onTabClick(tab.id)}
-                className={`flex items-center px-3 py-2 rounded-md text-sm font-medium transition-colors
-                  ${
-                    activeTab === tab.id
-                      ? 'bg-indigo-100 text-indigo-700'
-                      : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
+                className="flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                style={{
+                  backgroundColor: activeTab === tab.id ? THEME_COLORS.accentPrimary : 'transparent',
+                  color: activeTab === tab.id ? 'white' : THEME_COLORS.textSecondary,
+                  fontWeight: activeTab === tab.id ? '600' : '500'
+                }}
               >
                 <tab.icon size={18} className="mr-2" />
                 {tab.label}
@@ -1252,7 +1568,7 @@ const AppHeader = ({ activeTab, onTabClick }) => {
           
           {/* Mobile Nav (Placeholder) */}
           <div className="md:hidden">
-            <span className="text-gray-500">Menu</span>
+            <span style={{ color: THEME_COLORS.textSecondary }}>Menu</span>
           </div>
         </div>
       </nav>
@@ -1268,8 +1584,6 @@ export default function App() {
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
 
   useEffect(() => {
-    // On load, check if API key is set. If not, show modal.
-    // In a real app, this would check localStorage.
     if (!apiKey) {
       setShowApiKeyModal(true);
     }
@@ -1279,7 +1593,7 @@ export default function App() {
     setApiKey(key);
     setShowApiKeyModal(false);
     if (activeTab === 'welcome') {
-      setActiveTab('analyzer'); // Move to first real tab
+      setActiveTab('persona'); // Move to new first tab
     }
   };
 
@@ -1292,6 +1606,8 @@ export default function App() {
     switch (activeTab) {
       case 'welcome':
         return <WelcomeTab onApiKeySave={handleSaveApiKey} />;
+      case 'persona': // ADDED
+        return <PersonaArchitectTab apiKey={apiKey} onError={handleError} />;
       case 'analyzer':
         return <MarketPositionAnalyzerTab apiKey={apiKey} onError={handleError} />;
       case 'forge':
@@ -1306,18 +1622,27 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 font-sans">
-      <AppHeader activeTab={activeTab} onTabClick={setActiveTab} />
-      
-      <main className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
-        {renderTabContent()}
-      </main>
+    <div 
+      className="min-h-screen font-sans relative"
+      style={{ 
+        color: THEME_COLORS.textPrimary,
+        // Apply the radial gradient from the image
+        background: `radial-gradient(circle at 90% 40%, ${THEME_COLORS.accentTertiary} 0%, ${THEME_COLORS.background} 35%)`
+      }}
+    >
+      <div className="relative z-10">
+        <AppHeader activeTab={activeTab} onTabClick={setActiveTab} />
+        
+        <main className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+          {renderTabContent()}
+        </main>
 
-      <Modal isOpen={showApiKeyModal && activeTab !== 'welcome'} onClose={() => {}}>
-        <WelcomeTab onApiKeySave={handleSaveApiKey} />
-      </Modal>
+        <Modal isOpen={showApiKeyModal && activeTab !== 'welcome'} onClose={() => {}}>
+          <WelcomeTab onApiKeySave={handleSaveApiKey} />
+        </Modal>
 
-      <ErrorToast message={error} onClose={() => setError(null)} />
+        <ErrorToast message={error} onClose={() => setError(null)} />
+      </div>
     </div>
   );
 }

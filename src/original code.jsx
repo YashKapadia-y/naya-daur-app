@@ -37,85 +37,13 @@ import {
   Bot,
   Image as ImageIcon,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Smile, // Added
+  Meh,   // Added
+  Frown  // Added
 } from 'lucide-react';
 
 // --- Helper Functions ---
-
-/**
- * Parses the text response from the Gemini API to find percentages
- * and generates plausible, illustrative data for the charts.
- */
-const generateIllustrativeData = (analysisText) => {
-  const text = analysisText.toLowerCase();
-  
-  // Default data
-  let sentimentData = [
-    { name: 'Positive', value: 65 },
-    { name: 'Neutral', value: 20 },
-    { name: 'Negative', value: 15 },
-  ];
-  
-  let benchmarkData = [
-    { name: 'Brand Awareness', 'Your Brand': 60, 'Industry Average': 55 },
-    { name: 'Purchase Intent', 'Your Brand': 45, 'Industry Average': 50 },
-  ];
-  
-  let radarData = [
-    { subject: 'Innovation', A: 70, fullMark: 100 },
-    { subject: 'Trust', A: 60, fullMark: 100 },
-    { subject: 'Value', A: 80, fullMark: 100 },
-    { subject: 'Cultural-Fit', A: 65, fullMark: 100 },
-    { subject: 'Quality', A: 75, fullMark: 100 },
-  ];
-  
-  let competitorData = [
-    { name: 'Awareness', 'Your Brand': 60, 'Competitor 1': 70, 'Competitor 2': 50 },
-    { name: 'Sentiment', 'Your Brand': 65, 'Competitor 1': 75, 'Competitor 2': 55 },
-  ];
-  
-  let trendData = [
-    { name: 'Jan', 'Sentiment Score': 60, 'Engagement Rate': 2.5 },
-    { name: 'Feb', 'Sentiment Score': 62, 'Engagement Rate': 2.6 },
-    { name: 'Mar', 'Sentiment Score': 65, 'Engagement Rate': 2.8 },
-    { name: 'Apr', 'Sentiment Score': 63, 'Engagement Rate': 2.7 },
-    { name: 'May', 'Sentiment Score': 68, 'Engagement Rate': 3.0 },
-    { name: 'Jun', 'Sentiment Score': 72, 'Engagement Rate': 3.2 },
-  ];
-
-  // Try to find real data from text (simple regex)
-  try {
-    const sentimentMatch = text.match(/(\d+)% positive/);
-    if (sentimentMatch) {
-      const positive = parseInt(sentimentMatch[1], 10);
-      const neutral = Math.floor((100 - positive) * 0.7);
-      const negative = 100 - positive - neutral;
-      sentimentData = [
-        { name: 'Positive', value: positive },
-        { name: 'Neutral', value: neutral },
-        { name: 'Negative', value: negative },
-      ];
-    }
-
-    const awarenessMatch = text.match(/brand awareness.*?(\d+)%.*?industry.*?(\d+)%/);
-    if (awarenessMatch) {
-      benchmarkData[0]['Your Brand'] = parseInt(awarenessMatch[1], 10);
-      benchmarkData[0]['Industry Average'] = parseInt(awarenessMatch[2], 10);
-    }
-    
-    const intentMatch = text.match(/purchase intent.*?(\d+)%.*?industry.*?(\d+)%/);
-    if (intentMatch) {
-      benchmarkData[1]['Your Brand'] = parseInt(intentMatch[1], 10);
-      benchmarkData[1]['Industry Average'] = parseInt(intentMatch[2], 10);
-    }
-
-  } catch (e) {
-    console.error("Error parsing text for chart data:", e);
-    // Silently fail and use default data
-  }
-
-  return { sentimentData, benchmarkData, radarData, competitorData, trendData };
-};
 
 /**
  * A wrapper for fetch that includes exponential backoff.
@@ -129,7 +57,19 @@ const fetchWithBackoff = async (url, options, retries = 3, delay = 1000) => {
         await new Promise(res => setTimeout(res, delay));
         return fetchWithBackoff(url, options, retries - 1, delay * 2);
       }
-      throw new Error(`API Error: ${response.status} ${response.statusText}`);
+      
+      // MODIFIED: Try to get detailed error message from response body
+      let errorBody = null;
+      let detailedMessage = response.statusText;
+      try {
+        errorBody = await response.json();
+        detailedMessage = errorBody?.error?.message || detailedMessage;
+      } catch (e) {
+        // Ignore if response body is not JSON or errors
+      }
+      
+      console.error("API Error Response Body:", errorBody); // Log the full error
+      throw new Error(`API Error: ${response.status} ${detailedMessage}`);
     }
     return response.json();
   } catch (error) {
@@ -312,6 +252,96 @@ const WelcomeTab = ({ onApiKeySave }) => {
 };
 
 // --- Tab 2: Market Position Analyzer ---
+
+// NEW: Define the JSON schema we expect from the AI
+const marketAnalyzerSchema = {
+  type: "OBJECT",
+  properties: {
+    culturalInsights: { type: "STRING" },
+    culturalValueAlignment: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          trait: { type: "STRING" },
+          alignment: { type: "STRING" },
+          implication: { type: "STRING" }
+        }
+      }
+    },
+    marketSentiment: {
+      type: "OBJECT",
+      properties: {
+        summary: { type: "STRING" },
+        positive: { type: "NUMBER" },
+        neutral: { type: "NUMBER" },
+        negative: { type: "NUMBER" }
+      }
+    },
+    recommendations: {
+      type: "ARRAY",
+      items: { type: "STRING" }
+    },
+    performanceBenchmarks: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          metric: { type: "STRING" },
+          yourBrand: { type: "NUMBER" },
+          industryAverage: { type: "NUMBER" }
+        }
+      }
+    },
+    consumerSentimentAnalysis: { type: "STRING" },
+    keyCulturalThemes: {
+      type: "ARRAY",
+      items: { type: "STRING" }
+    },
+    brandPerformanceRadar: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            subject: { type: "STRING" },
+            A: { type: "NUMBER" },
+            fullMark: { type: "NUMBER" }
+          }
+        }
+    },
+    regionalPerformance: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          region: { type: "STRING" },
+          sentiment: { type: "STRING", enum: ["Positive", "Neutral", "Negative"] },
+          summary: { type: "STRING" }
+        }
+      }
+    },
+    competitorBenchmarks: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: {
+          metric: { type: "STRING" },
+          yourBrand: { type: "NUMBER" },
+          competitor1: { type: "NUMBER" },
+          competitor2: { type: "NUMBER" }
+        }
+      }
+    }
+  },
+  required: [
+    "culturalInsights", "culturalValueAlignment", "marketSentiment", 
+    "recommendations", "performanceBenchmarks", "consumerSentimentAnalysis",
+    "keyCulturalThemes", "brandPerformanceRadar", "regionalPerformance", 
+    "competitorBenchmarks"
+  ]
+};
+
+
 const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
   const [inputs, setInputs] = useState({
     companyName: '',
@@ -321,8 +351,8 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
     competitors: '',
   });
   const [isLoading, setIsLoading] = useState(false);
-  const [result, setResult] = useState(null);
-  const [chartData, setChartData] = useState(null);
+  const [loadingMessage, setLoadingMessage] = useState(''); // NEW
+  const [result, setResult] = useState(null); // Will hold the JSON object
 
   const handleInputChange = (e) => {
     const { name, value } = e.target;
@@ -336,72 +366,122 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
     }
     setIsLoading(true);
     setResult(null);
-    setChartData(null);
-
-    const userPrompt = `
-      Analyze the market position for the following company and product.
-      - Company: ${inputs.companyName}
-      - Website: ${inputs.website}
-      - Location: ${inputs.location}
-      - Product: ${inputs.product}
-      - Competitors: ${inputs.competitors}
-
-      Provide a comprehensive report covering:
-      1.  Cultural Insights: Key cultural nuances in ${inputs.location} relevant to ${inputs.product}.
-      2.  Cultural Value Alignment: How well a brand like this might align with local values.
-      3.  Market Sentiment Analysis: Overall sentiment (e.g., "70% positive").
-      4.  Recommendations: 3-5 actionable recommendations.
-      5.  Performance Benchmarks: Estimated Brand Awareness (e.g., "brand awareness is around 40%, while industry average is 45%") and Purchase Intent (e.g., "purchase intent is 30% vs industry 33%").
-      6.  Consumer Sentiment Analysis: Deeper dive into what consumers are saying.
-      7.  Key Cultural Themes: Top 3 cultural themes to leverage.
-      8.  Brand Performance Summary: A summary.
-      9.  Regional Performance Summary: Any regional differences in ${inputs.location}.
-      10. Competitor Benchmarks: How they stack up against ${inputs.competitors}.
-    `;
 
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-    const payload = {
-      contents: [{ parts: [{ text: userPrompt }] }],
-      tools: [{ "google_search": {} }],
-    };
+
+    // ***************************************************************
+    // FIX: Perform a 2-step call to avoid the 400 error
+    // ***************************************************************
 
     try {
-      const data = await fetchWithBackoff(apiUrl, {
+      // STEP 1: Get grounded text data using Google Search
+      setLoadingMessage('Analyzing market data...');
+      const searchTextPrompt = `
+        Analyze the market position for:
+        - Company: ${inputs.companyName} (${inputs.website})
+        - Location: ${inputs.location}
+        - Product: ${inputs.product}
+        - Competitors: ${inputs.competitors}
+
+        Provide a detailed, text-based report covering:
+        1.  Cultural Insights: Key cultural nuances in ${inputs.location} relevant to ${inputs.product}.
+        2.  Cultural Value Alignment: (e.g., Trait: Aspiration, Alignment: High, Implication: Strong appeal)
+        3.  Market Sentiment Analysis: Overall sentiment with estimated percentages (e.g., 70% positive).
+        4.  Recommendations: 3-5 actionable recommendations.
+        5.  Performance Benchmarks: Estimated Brand Awareness and Purchase Intent vs. industry average (e.g., Brand Awareness: 40% vs Industry 45%).
+        6.  Consumer Sentiment Analysis: Deeper dive into what consumers are saying.
+        7.  Key Cultural Themes: Top 3 cultural themes to leverage.
+        8.  Brand Performance Radar: 5 subjects (e.g., 'Innovation', 'Trust') and scores out of 100.
+        9.  Regional Performance: 4-6 key cities/regions in '${inputs.location}' and their sentiment.
+        10. Competitor Benchmarks: Compare '${inputs.companyName}' against '${inputs.competitors}' on 2-3 key metrics.
+      `;
+
+      const searchPayload = {
+        contents: [{ parts: [{ text: searchTextPrompt }] }],
+        tools: [{ "google_search": {} }],
+      };
+
+      const searchData = await fetchWithBackoff(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(searchPayload),
       });
 
-      const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-      if (text) {
-        setResult(text);
-        setChartData(generateIllustrativeData(text));
-      } else {
-        throw new Error('No content returned from API.');
+      const groundedText = searchData.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!groundedText) {
+        throw new Error('Step 1 Failed: No content returned from market analysis.');
       }
+
+      // STEP 2: Parse the grounded text into the required JSON schema
+      setLoadingMessage('Formatting results...');
+      
+      const parseJsonPrompt = `
+        Parse the following market analysis text and convert it into a valid JSON object matching the provided schema.
+
+        TEXT TO PARSE:
+        ---
+        ${groundedText}
+        ---
+
+        Fill all fields in the JSON schema. For 'competitorBenchmarks', use 'competitor1' and 'competitor2' as keys, deriving names from '${inputs.competitors}'.
+      `;
+
+      const jsonPayload = {
+        contents: [{ parts: [{ text: parseJsonPrompt }] }],
+        // NO 'tools' when 'generationConfig' is used for JSON
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: marketAnalyzerSchema
+        }
+      };
+
+      const jsonData = await fetchWithBackoff(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jsonPayload),
+      });
+
+      const jsonText = jsonData.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (jsonText) {
+        const parsedJson = JSON.parse(jsonText);
+        setResult(parsedJson);
+      } else {
+        throw new Error('Step 2 Failed: No JSON content returned from parsing.');
+      }
+    
     } catch (err) {
       console.error(err);
       onError(err.message || 'Failed to generate analysis.');
     } finally {
       setIsLoading(false);
+      setLoadingMessage('');
     }
   };
 
-  const renderAnalysisText = (text) => {
-    return text.split('\n').map((paragraph, index) => {
-      if (paragraph.match(/^\d+\./) || paragraph.match(/^[A-Za-z ]+:/)) {
-        return (
-          <p key={index} className="mt-4 first:mt-0">
-            <strong className="text-gray-800 font-semibold">
-              {paragraph.split(':')[0]}:
-            </strong>
-            {paragraph.split(':').slice(1).join(':')}
-          </p>
-        );
-      }
-      return <p key={index} className="mt-2">{paragraph}</p>;
-    });
+  // NEW: Helper to get sentiment color and icon
+  const getSentimentStyle = (sentiment) => {
+    switch (sentiment?.toLowerCase()) {
+      case 'positive':
+        return { icon: <Smile className="text-green-500" />, color: "bg-green-500", text: "text-green-900" };
+      case 'neutral':
+        return { icon: <Meh className="text-yellow-500" />, color: "bg-yellow-400", text: "text-yellow-900" };
+      case 'negative':
+        return { icon: <Frown className="text-red-500" />, color: "bg-red-400", text: "text-red-900" };
+      default:
+        return { icon: <Meh className="text-gray-500" />, color: "bg-gray-400", text: "text-gray-900" };
+    }
   };
+
+  // NEW: Helper to format pie chart data
+  const sentimentPieData = useMemo(() => {
+    if (!result?.marketSentiment) return [];
+    return [
+      { name: 'Positive', value: result.marketSentiment.positive },
+      { name: 'Neutral', value: result.marketSentiment.neutral },
+      { name: 'Negative', value: result.marketSentiment.negative },
+    ];
+  }, [result]);
+
 
   const PIE_COLORS = ['#34D399', '#FBBF24', '#EF4444']; // Green, Yellow, Red
 
@@ -446,28 +526,97 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
       {isLoading && (
         <div className="flex justify-center items-center p-12">
           <LoadingSpinner size={48} />
-          <p className="ml-4 text-xl text-gray-600">Analyzing... this may take a moment.</p>
+          <p className="ml-4 text-xl text-gray-600">{loadingMessage || 'Analyzing...'}</p> {/* MODIFIED */}
         </div>
       )}
 
-      {result && chartData && (
+      {/* NEW: Updated render logic */}
+      {result && (
         <div className="space-y-8">
-          {/* Text Analysis */}
-          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100">
+          
+          {/* Text Analysis Sections */}
+          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100 space-y-6">
             <h3 className="text-2xl font-semibold text-gray-800 mb-4">
               AI-Generated Market Analysis
             </h3>
-            <div className="prose prose-indigo max-w-none text-gray-700">
-              {renderAnalysisText(result)}
+            
+            {/* Cultural Insights */}
+            <div>
+              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Cultural Insights</h4>
+              <p className="text-gray-700">{result.culturalInsights}</p>
+            </div>
+
+            {/* Market Sentiment */}
+            <div>
+              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Market Sentiment Analysis</h4>
+              <div className="flex items-center space-x-4 mb-2">
+                {getSentimentStyle(sentimentPieData.find(s => s.value === Math.max(...sentimentPieData.map(s => s.value)))?.name).icon}
+                <div className="flex space-x-4">
+                  <span className="flex items-center"><Smile size={18} className="text-green-500 mr-1" /> {result.marketSentiment.positive}% Positive</span>
+                  <span className="flex items-center"><Meh size={18} className="text-yellow-500 mr-1" /> {result.marketSentiment.neutral}% Neutral</span>
+                  <span className="flex items-center"><Frown size={18} className="text-red-500 mr-1" /> {result.marketSentiment.negative}% Negative</span>
+                </div>
+              </div>
+              <p className="text-gray-700">{result.marketSentiment.summary}</p>
+            </div>
+
+            {/* Consumer Sentiment */}
+            <div>
+              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Consumer Sentiment Analysis</h4>
+              <p className="text-gray-700">{result.consumerSentimentAnalysis}</p>
+            </div>
+
+            {/* Key Cultural Themes */}
+            <div>
+              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Key Cultural Themes</h4>
+              <ul className="list-disc list-inside text-gray-700 space-y-1">
+                {result.keyCulturalThemes.map(theme => <li key={theme}>{theme}</li>)}
+              </ul>
+            </div>
+
+            {/* Recommendations */}
+            <div>
+              <h4 className="text-xl font-semibold text-indigo-600 mb-2">Recommendations</h4>
+              <ul className="list-decimal list-inside text-gray-700 space-y-1">
+                {result.recommendations.map(rec => <li key={rec}>{rec}</li>)}
+              </ul>
             </div>
           </div>
+
+          {/* NEW: Cultural Value Alignment Table */}
+          <div className="bg-white rounded-xl shadow-lg p-8 border border-gray-100">
+            <h3 className="text-2xl font-semibold text-gray-800 mb-4">
+              Cultural Value Alignment
+            </h3>
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cultural Value / Trait</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Brand Alignment</th>
+                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Implication for Success</th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {result.culturalValueAlignment.map((item) => (
+                    <tr key={item.trait}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{item.trait}</td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{item.alignment}</td>
+                      <td className="px-6 py-4 text-sm text-gray-500">{item.implication}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
 
           {/* Charts Dashboard */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
             <ChartContainer title="Market Sentiment">
               <PieChart>
-                <Pie data={chartData.sentimentData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill="#8884d8" label>
-                  {chartData.sentimentData.map((entry, index) => (
+                <Pie data={sentimentPieData} dataKey="value" nameKey="name" cx="50%" cy="50%" outerRadius={100} fill="#8884d8" label>
+                  {sentimentPieData.map((entry, index) => (
                     <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
                   ))}
                 </Pie>
@@ -477,19 +626,19 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
             </ChartContainer>
 
             <ChartContainer title="Performance Benchmarks">
-              <BarChart data={chartData.benchmarkData}>
+              <BarChart data={result.performanceBenchmarks}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
+                <XAxis dataKey="metric" />
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="Your Brand" fill="#4F46E5" />
-                <Bar dataKey="Industry Average" fill="#A5B4FC" />
+                <Bar dataKey="yourBrand" name="Your Brand" fill="#4F46E5" />
+                <Bar dataKey="industryAverage" name="Industry Average" fill="#A5B4FC" />
               </BarChart>
             </ChartContainer>
 
             <ChartContainer title="Brand Performance Radar">
-              <RadarChart cx="50%" cy="50%" outerRadius={100} data={chartData.radarData}>
+              <RadarChart cx="50%" cy="50%" outerRadius={100} data={result.brandPerformanceRadar}>
                 <PolarGrid />
                 <PolarAngleAxis dataKey="subject" />
                 <PolarRadiusAxis angle={30} domain={[0, 100]} />
@@ -497,34 +646,47 @@ const MarketPositionAnalyzerTab = ({ apiKey, onError }) => {
               </RadarChart>
             </ChartContainer>
 
-            <ChartContainer title="Regional Performance Heatmap (Illustrative)">
+            {/* NEW: Dynamic Heatmap */}
+            <ChartContainer title="Regional Performance Heatmap">
                 <div className="flex items-center justify-center h-full">
-                  <div className="grid grid-cols-3 gap-4 p-4 bg-gray-100 rounded-lg">
-                    <div className="w-20 h-20 bg-green-500 rounded-lg flex items-center justify-center text-white font-bold">Region 1</div>
-                    <div className="w-20 h-20 bg-green-300 rounded-lg flex items-center justify-center text-green-900 font-bold">Region 2</div>
-                    <div className="w-20 h-20 bg-yellow-300 rounded-lg flex items-center justify-center text-yellow-900 font-bold">Region 3</div>
-                    <div className="w-20 h-20 bg-green-600 rounded-lg flex items-center justify-center text-white font-bold">Region 4</div>
-                    <div className="w-20 h-20 bg-yellow-400 rounded-lg flex items-center justify-center text-yellow-900 font-bold">Region 5</div>
-                    <div className="w-20 h-20 bg-red-400 rounded-lg flex items-center justify-center text-red-900 font-bold">Region 6</div>
+                  <div className="grid grid-cols-3 gap-4 p-4">
+                    {result.regionalPerformance.map((item) => {
+                      const { icon, color, text } = getSentimentStyle(item.sentiment);
+                      return (
+                        <div key={item.region} className={`w-28 h-28 ${color} rounded-lg flex flex-col items-center justify-center p-2 shadow-md`}>
+                          <span className={`font-bold ${text} text-center`}>{item.region}</span>
+                          {icon}
+                          <span className={`text-xs ${text} text-center mt-1`}>{item.summary}</span>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
             </ChartContainer>
 
             <ChartContainer title="Competitor Benchmark">
-              <BarChart data={chartData.competitorData}>
+              <BarChart data={result.competitorBenchmarks}>
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="name" />
+                <XAxis dataKey="metric" />
                 <YAxis />
                 <Tooltip />
                 <Legend />
-                <Bar dataKey="Your Brand" fill="#4F46E5" />
-                <Bar dataKey="Competitor 1" fill="#A5B4FC" />
-                <Bar dataKey="Competitor 2" fill="#C7D2FE" />
+                <Bar dataKey="yourBrand" name="Your Brand" fill="#4F46E5" />
+                <Bar dataKey="competitor1" name={inputs.competitors.split(',')[0]?.trim() || 'Competitor 1'} fill="#A5B4FC" />
+                <Bar dataKey="competitor2" name={inputs.competitors.split(',')[1]?.trim() || 'Competitor 2'} fill="#C7D2FE" />
               </BarChart>
             </ChartContainer>
             
-            <ChartContainer title="Sentiment & Engagement Trend (6-Mo)">
-              <LineChart data={chartData.trendData}>
+            {/* Keep illustrative trend data for now, or could ask AI for it */}
+            <ChartContainer title="Sentiment & Engagement Trend (Illustrative)">
+              <LineChart data={[
+                  { name: 'Jan', 'Sentiment Score': 60, 'Engagement Rate': 2.5 },
+                  { name: 'Feb', 'Sentiment Score': 62, 'Engagement Rate': 2.6 },
+                  { name: 'Mar', 'Sentiment Score': 65, 'Engagement Rate': 2.8 },
+                  { name: 'Apr', 'Sentiment Score': 63, 'Engagement Rate': 2.7 },
+                  { name: 'May', 'Sentiment Score': 68, 'Engagement Rate': 3.0 },
+                  { name: 'Jun', 'Sentiment Score': 72, 'Engagement Rate': 3.2 },
+                ]}>
                 <CartesianGrid strokeDasharray="3 3" />
                 <XAxis dataKey="name" />
                 <YAxis yAxisId="left" />
@@ -552,6 +714,7 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
     imageURL: '',
   });
   const [isStrategyLoading, setIsStrategyLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState(''); // NEW
   const [isImageLoading, setIsImageLoading] = useState(false);
   
   const [strategyResult, setStrategyResult] = useState(null);
@@ -613,49 +776,89 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
     setSelectedConcept(null);
     setGeneratedImages([]);
 
-    const userPrompt = `
-      Create a full campaign strategy for:
-      - Company: ${inputs.companyName} (${inputs.website})
-      - Target: ${inputs.city}, ${inputs.country}
-      - Reference Image (Optional): ${inputs.imageURL}
-
-      Provide the following in a JSON object:
-      1.  strategy: A brief campaign strategy.
-      2.  rationale: The rationale behind it.
-      3.  kpis: An array of 3-4 conservative KPI estimations (e.g., {"metric": "Brand Awareness Lift", "value": "5-10%"}).
-      4.  framework: An object with coreMessage, channelStrategy, contentCalendar, and riskMitigation.
-      5.  concepts: An array of 6 distinct campaign concepts. Each concept object should have an id (1-6), title, summary, and a visualIdea (a short description for an image generator).
-    `;
-
     const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-    const payload = {
-      contents: [{ parts: [{ text: userPrompt }] }],
-      tools: [{ "google_search": {} }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        responseSchema: campaignSchema
-      }
-    };
+
+    // ***************************************************************
+    // FIX: Perform a 2-step call to avoid the 400 error
+    // ***************************************************************
 
     try {
-      const data = await fetchWithBackoff(apiUrl, {
+      // STEP 1: Get grounded text data using Google Search
+      setLoadingMessage('Developing strategy...');
+      
+      const searchTextPrompt = `
+        Create a full campaign strategy for:
+        - Company: ${inputs.companyName} (${inputs.website})
+        - Target: ${inputs.city}, ${inputs.country}
+        - Reference Image (Optional): ${inputs.imageURL}
+
+        Provide a detailed text report covering:
+        1.  strategy: A brief campaign strategy.
+        2.  rationale: The rationale behind it.
+        3.  kpis: A list of 3-4 conservative KPI estimations (e.g., Brand Awareness Lift: 5-10%).
+        4.  framework: Details for coreMessage, channelStrategy, contentCalendar, and riskMitigation.
+        5.  concepts: A list of 6 distinct campaign concepts. Each concept should have a title, summary, and a visualIdea (a short description for an image generator).
+      `;
+      
+      const searchPayload = {
+        contents: [{ parts: [{ text: searchTextPrompt }] }],
+        tools: [{ "google_search": {} }],
+      };
+
+      const searchData = await fetchWithBackoff(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(searchPayload),
       });
 
-      const jsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      const groundedText = searchData.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!groundedText) {
+        throw new Error('Step 1 Failed: No content returned from strategy generation.');
+      }
+
+      // STEP 2: Parse the grounded text into the required JSON schema
+      setLoadingMessage('Formatting campaign...');
+
+      const parseJsonPrompt = `
+        Parse the following campaign strategy text and convert it into a valid JSON object matching the provided schema.
+
+        TEXT TO PARSE:
+        ---
+        ${groundedText}
+        ---
+
+        Assign sequential IDs (1-6) to the 6 concepts.
+      `;
+
+      const jsonPayload = {
+        contents: [{ parts: [{ text: parseJsonPrompt }] }],
+        // NO 'tools' when 'generationConfig' is used for JSON
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: campaignSchema
+        }
+      };
+
+      const jsonData = await fetchWithBackoff(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jsonPayload),
+      });
+
+      const jsonText = jsonData.candidates?.[0]?.content?.parts?.[0]?.text;
       if (jsonText) {
         const parsedJson = JSON.parse(jsonText);
         setStrategyResult(parsedJson);
       } else {
-        throw new Error('No content returned from API.');
+        throw new Error('Step 2 Failed: No JSON content returned from parsing.');
       }
+
     } catch (err) {
       console.error(err);
-      onError(err.message || 'Failed to generate strategy. The model may have returned invalid JSON.');
+      onError(err.message || 'Failed to generate strategy.');
     } finally {
       setIsStrategyLoading(false);
+      setLoadingMessage('');
     }
   };
 
@@ -768,7 +971,7 @@ const CampaignForgeTab = ({ apiKey, onError }) => {
       {isStrategyLoading && (
         <div className="flex justify-center items-center p-12">
           <LoadingSpinner size={48} />
-          <p className="ml-4 text-xl text-gray-600">Forging your campaign... this is a big one.</p>
+          <p className="ml-4 text-xl text-gray-600">{loadingMessage || 'Forging your campaign...'}</p> {/* MODIFIED */}
         </div>
       )}
 
